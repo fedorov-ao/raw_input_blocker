@@ -2,36 +2,45 @@
 
 import sys
 import re
+import getopt
 
+reMacro = re.compile(" *(?P<ret>(#if|#endif).+)")
 reDef = re.compile("(?P<ret>[^ ]+) *(?P<cconv>WINAPI) *(?P<name>[^ ]+) *\( *(?P<args>[^\)]*) *\);?")
 
 def parse_match(m):
   r = None
-  if m is not None:
-    args = m.group("args")
-    if args is not None:
-      args = re.sub("( |\t){2,}", " ", args)
-      args = args.replace("\n", " ").split(",")
-      args2 = []
-      for arg in args:
-        arg = arg.strip(" ").strip("\t")
-        for c in ("*", " ", "\t"):
-          i = arg.rfind(c)
-          if i != -1:
-            i += 1
-            t, n = arg[:i].strip(" "), arg[i:].strip(" ")
-            args2.append([t, n])
-            break
-        else:
-          args2.append([arg])
-      args = args2
-    r = { k : m.group(k) for k in ("ret", "cconv", "name") }
-    r["args"] = args
+  if m is None:
+    return r
+  ret = m.group("ret")
+  r = { "ret" : ret }
+  if ret[0] == "#":
+    return r
+  for k in ("cconv", "name"):
+    r[k] = m.group(k)
+  args = m.group("args")
+  if args is not None:
+    args = re.sub("( |\t){2,}", " ", args)
+    args = args.replace("\n", " ").split(",")
+    args2 = []
+    for arg in args:
+      arg = arg.strip(" ").strip("\t")
+      for c in ("*", " ", "\t"):
+        i = arg.rfind(c)
+        if i != -1:
+          i += 1
+          t, n = arg[:i].strip(" "), arg[i:].strip(" ")
+          args2.append([t, n])
+          break
+      else:
+        args2.append([arg])
+    args = args2
+  r["args"] = args
+  r["def"] = m.group(0).replace("\n", " ")
   return r
 
 
 def parse_def(s):
-  m = reDef2.search(s)
+  m = reMacro.search(s)
   if m is None:
     m = reDef.search(s)
   return parse_match(m)
@@ -45,23 +54,38 @@ def make_args(args):
   return args.strip(" ")
 
 
+def macro_decorator(wrapped):
+  def func(d, *args, **kwargs):
+    ret = d["ret"]
+    if ret[0] == "#":
+      return ret
+    else:
+      return wrapped(d, *args, **kwargs)
+  return func
+
+
 DT_FUNC = 0
 DT_FUNC_PTR = 1
 DT_FUNC_PTR_DECLTYPE = 2
 DT_DEF = 3
 
+@macro_decorator
 def make_def(d, defType, addSemicolon=True):
-  if defType == DT_DEF:
-    return d
-  args = make_args(d["args"])
-  fmt = {
-    DT_FUNC : "DLLEXPORT {ret} {cconv} {name} ({args}){suffix}",
-    DT_FUNC_PTR : "{ret} {cconv} (*{name}) ({args}){suffix}",
-    DT_FUNC_PTR_DECLTYPE : "decltype(::{name}) * {name}{suffix}"
-  }[defType]
-  return fmt.format(ret=d["ret"], cconv=d["cconv"], name=d["name"], args=args, suffix=";" if addSemicolon else "")
+  if type(d) is dict and d.get("cconv") == "WINAPI":
+    if defType == DT_DEF:
+      return d
+    args = make_args(d["args"])
+    fmt = {
+      DT_FUNC : "DLLEXPORT {ret} {cconv} {name} ({args}){suffix}",
+      DT_FUNC_PTR : "{ret} {cconv} (*{name}) ({args}){suffix}",
+      DT_FUNC_PTR_DECLTYPE : "decltype(::{name}) * {name}{suffix}"
+    }[defType]
+    return fmt.format(ret=d["ret"], cconv=d["cconv"], name=d["name"], args=args, suffix=";" if addSemicolon else "")
+  else:
+    return "//" + str(d)
 
 
+@macro_decorator
 def make_func(d, prefix):
   args = d["args"]
   j = 0
@@ -85,6 +109,7 @@ def make_func(d, prefix):
   return decl
 
 
+@macro_decorator
 def make_import_init(d, prefix):
   name = d["name"]
   prefixedName = prefix + name
@@ -106,23 +131,36 @@ def parse_seq(seq, includeUnparsed=True):
 
 
 def parse_seq2(seq):
-  all_ = " ".join(seq)
-  all_ = re.sub("DECLSPEC_HOTPATCH", "", all_)
-  all_ = re.sub("/\*.*?\* */", "", all_)
-  matches = []
-  i = 0
-  while True:
-    m = reDef.search(all_, i)
-    if m is None:
-      break
-    matches.append(m)
-    i = m.end()
-  defs = []
-  for m in matches:
-    def_ = parse_match(m)
-    if def_ is None:
-      continue
-    defs.append(def_)
+  def worker(seq):
+    all_ = " ".join(seq)
+    all_ = re.sub("DECLSPEC_HOTPATCH", "", all_)
+    all_ = re.sub("/\*.*?\* */", "", all_)
+    matches = []
+    i = 0
+    while True:
+      m = reDef.search(all_, i)
+      if m is None:
+        break
+      matches.append(m)
+      i = m.end()
+    defs = []
+    for m in matches:
+      def_ = parse_match(m)
+      if def_ is None:
+        continue
+      defs.append(def_)
+    return defs
+  defs, subseq = [], []
+  for s in seq:
+    m = reMacro.match(s)
+    if m is not None:
+      defs.extend(worker(subseq))
+      subseq = []
+      #defs.append({"ret" : m.group("ret")})
+    else:
+      subseq.append(s)
+  if len(subseq) != 0:
+    defs.extend(worker(subseq))
   return defs
 
 
@@ -135,6 +173,15 @@ def run():
       sym = set(sym.strip(" ").strip("\n") for sym in symFile)
       for l in sorted(list(sym - defs)):
         print l
+  elif mode == "check_missing2":
+    lessFileName, moreFileName = sys.argv[2], sys.argv[3]
+    with open(lessFileName) as lessFile, open(moreFileName) as moreFile:
+      less, more = parse_seq2(lessFile), parse_seq2(moreFile)
+      less = { d["name"] : d for d in less }
+      more = { d["name"] : d for d in more }
+      diff = set(more.keys()) - set(less.keys())
+      for d in diff:
+        print more[d]["def"]
   else:
     import glob
     path = sys.argv[2]
@@ -142,7 +189,6 @@ def run():
     for fname in glob.glob(path):
       with open(fname) as f:
         defs.extend(parse_seq2(f))
-    defs.sort(key=lambda d : d["name"])
     modes = mode.split(",")
     l = len(modes)
     li = l - 1
@@ -157,8 +203,7 @@ def run():
         }.get(mode, None)
         for d in defs:
           #print "//" + d if type(d) is str else make_def(d, defType, True)
-          if type(d) is dict and d["cconv"] == "WINAPI":
-            print make_def(d, defType, True)
+          print make_def(d, defType, True)
       elif mode == "funcs":
         prefix = sys.argv[3]
         for d in defs:
