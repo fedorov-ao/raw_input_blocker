@@ -1,6 +1,6 @@
 .SUFFIXES:
 
-VERSION = 0.5.1
+VERSION = 0.5.2
 
 HEADERS = logging.hpp util.hpp vkeys.hpp user32.hpp config.hpp
 SOURCES = wrapper.cpp logging.cpp vkeys.cpp user32.cpp

@@ -133,6 +133,7 @@ UINT RawInputFilter::GetRawInputBuffer (PRAWINPUT pData, PUINT pcbSize, UINT cbS
     nMessages += 1;
   }
 
+  logging::log("wrapper", logging::LogLevel::debug, "nMessages: ", nMessages);
   return nMessages;
 }
 
@@ -157,22 +158,53 @@ UINT RawInputFilter::fill_filtered_(UINT cbSizeHeader)
   //TODO Check if GetRawInputBuffer() returns (UINT)-1 when checking for buffer size.
   if (r == er && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
     return er;
-  buffer_.resize(cbSize);
-  r = APIUser32::GetRawInputBuffer(reinterpret_cast<PRAWINPUT>(buffer_.data()), &cbSize, cbSizeHeader);
-  if (r == er)
-    return er;
+  logging::log("wrapper", logging::LogLevel::debug, "requested buffer size: ", cbSize);
+  /* When running under Wine 8.0, GetRawInputBuffer() writes incorrect requested buffer size in cbSize
+     if first argument is NULL. When actually trying to read data in user-supplied buffer (ptr to which
+     is supplied in first argument, GetRawInputBuffer() returns (UINT)-1 and sets last error to
+     ERROR_INSUFFICIENT_BUFFER. So the following loop tries to guess needed buffer size by doubling it
+     on failure. */
+  for (int i = 0; i < 3; ++i)
+  {
+    buffer_.resize(cbSize);
+    r = APIUser32::GetRawInputBuffer(reinterpret_cast<PRAWINPUT>(buffer_.data()), &cbSize, cbSizeHeader);
+    if (r != er)
+      break;
+    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+      cbSize *= 2;
+    else
+      return er;
+  }
   uint8_t * ptr = buffer_.data();
   uint8_t const * end = ptr + cbSize;
+  logging::log("wrapper", logging::LogLevel::debug, "buffer size: ", buffer_.size(), "; r: ", r, "; cbSize: ", cbSize);
   filtered_.clear();
-  while (ptr < end)
+  for (UINT i = 0; i < r; ++i)
   {
     PRAWINPUT current = reinterpret_cast<PRAWINPUT>(ptr);
+    if (ptr > end)
+    {
+      logging::log("wrapper", logging::LogLevel::error, "message ", i, " pointer out of bounds");
+      return er;
+    }
     UINT const size = current->header.dwSize;
-    assert(size >= cbSizeHeader);
-    assert(ptr + size <= end);
+    if (size < cbSizeHeader)
+    {
+      logging::log("wrapper", logging::LogLevel::error, "message ", i, " size does not match");
+      return er;
+    }
+
     if (spRawInputTest_ && spRawInputTest_->test(current))
+    {
+      logging::log("wrapper", logging::LogLevel::debug, "accepting message ", i);
       filtered_.insert(filtered_.end(), ptr, ptr + size);
+    }
+    else
+      logging::log("wrapper", logging::LogLevel::debug, "skipping message ", i);
+
+    ptr += size;
   }
+  logging::log("wrapper", logging::LogLevel::debug, "filtered size: ", filtered_.size());
   pCurrentFiltered_ = filtered_.data();
   pEndFiltered_ = pCurrentFiltered_ + filtered_.size();
 }
@@ -256,6 +288,7 @@ void DeviceHandleRawInputTest::set_state(bool state)
 {
   lock_t l (mutex_);
   state_ = state;
+  logging::log("wrapper", logging::LogLevel::debug, "state: ", state_);
 }
 
 
@@ -271,6 +304,7 @@ void DeviceHandleRawInputTest::push_state(bool state)
   lock_t l (mutex_);
   states_.push_back(state_);
   state_ = state;
+  logging::log("wrapper", logging::LogLevel::debug, "state: ", state_);
 }
 
 
@@ -278,6 +312,7 @@ void DeviceHandleRawInputTest::pop_state()
 {
   lock_t l (mutex_);
   state_ = states_.back();
+  logging::log("wrapper", logging::LogLevel::debug, "state: ", state_);
   states_.pop_back();
 }
 
@@ -289,6 +324,30 @@ DeviceHandleRawInputTest::DeviceHandleRawInputTest(HANDLE handle, bool state)
 
 /* Key map */
 enum class KeyEventType : int { press=0, release=1 };
+
+
+KeyEventType name2ket(char const * name)
+{
+  static struct { char const * name; KeyEventType ket; } const n2k[] = { { "press", KeyEventType::press }, { "release", KeyEventType::release } };
+  for (auto const & p : n2k)
+    if (std::strcmp(p.name, name) == 0)
+      return p.ket;
+  throw std::runtime_error("Invalid key event type");
+}
+
+
+char const * ket2name(KeyEventType ket)
+{
+  switch(ket)
+  {
+    case KeyEventType::press:
+      return "pressed";
+    case KeyEventType::release:
+      return "released";
+    default:
+      return "invalid";
+  }
+}
 
 
 class GKSKeyMap
@@ -324,16 +383,19 @@ private:
 
 void GKSKeyMap::update()
 {
+  logging::log("wrapper", logging::LogLevel::debug, "GKSKeyMap::update()");
   for (auto & p : data_)
   {
     auto const & key = p.first;
     bool currentState = GetKeyState(key) & 0x8000;
+    logging::log("wrapper", logging::LogLevel::debug, "key ", key2name(key), ": state: ", currentState);
     auto & prevState = p.second.state;
     if (currentState != prevState)
     {
       auto const ket = (currentState && !prevState) ? KeyEventType::press : KeyEventType::release;
       for (auto & cb : p.second.callbacks[static_cast<int>(ket)])
         cb.second();
+      logging::log("wrapper", logging::LogLevel::debug, "key ", key2name(key), " ", ket2name(ket));
       prevState = currentState;
     }
   }
@@ -524,15 +586,6 @@ void print_raw_input_devices()
   logging::log("wrapper", logging::LogLevel::info, "=======================");
 }
 
-
-KeyEventType name2ket(char const * name)
-{
-  static struct { char const * name; KeyEventType ket; } const n2k[] = { { "press", KeyEventType::press }, { "release", KeyEventType::release } };
-  for (auto const & p : n2k)
-    if (std::strcmp(p.name, name) == 0)
-      return p.ket;
-  throw std::runtime_error("Invalid key event type");
-}
 
 GKSKeyMap g_keyMap;
 
