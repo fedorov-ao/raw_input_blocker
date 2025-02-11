@@ -873,7 +873,7 @@ public:
   virtual DPI_AWARENESS_CONTEXT GetWindowDpiAwarenessContext (HWND hwnd) =0;
   virtual HDEVNOTIFY I_ScRegisterDeviceNotification (DEVICE_NOTIFICATION_DETAILS * details, LPVOID filter, DWORD flags) =0;
   virtual BOOL I_ScUnregisterDeviceNotification (HDEVNOTIFY handle) =0;
-  virtual BOOL DdeSetUserHandle (HCONV hConv, DWORD id, DWORD hUser) =0;
+  virtual BOOL DdeSetUserHandle (HCONV hConv, DWORD id, DWORD_PTR hUser) =0;
   virtual BOOL DdePostAdvise (DWORD idInst, HSZ hszTopic, HSZ hszItem) =0;
   virtual DWORD GetAppCompatFlags2 (HTASK hTask) =0;
   virtual BOOL AreDpiAwarenessContextsEqual (DPI_AWARENESS_CONTEXT ctx1, DPI_AWARENESS_CONTEXT ctx2) =0;
@@ -1702,7 +1702,7 @@ public:
   virtual DPI_AWARENESS_CONTEXT GetWindowDpiAwarenessContext (HWND hwnd);
   virtual HDEVNOTIFY I_ScRegisterDeviceNotification (DEVICE_NOTIFICATION_DETAILS * details, LPVOID filter, DWORD flags);
   virtual BOOL I_ScUnregisterDeviceNotification (HDEVNOTIFY handle);
-  virtual BOOL DdeSetUserHandle (HCONV hConv, DWORD id, DWORD hUser);
+  virtual BOOL DdeSetUserHandle (HCONV hConv, DWORD id, DWORD_PTR hUser);
   virtual BOOL DdePostAdvise (DWORD idInst, HSZ hszTopic, HSZ hszItem);
   virtual DWORD GetAppCompatFlags2 (HTASK hTask);
   virtual BOOL AreDpiAwarenessContextsEqual (DPI_AWARENESS_CONTEXT ctx1, DPI_AWARENESS_CONTEXT ctx2);

@@ -451,7 +451,7 @@ std::vector<RawInputDeviceProps> get_raw_input_device_props()
       throw std::runtime_error("Failed to get device name");
     ridp.name = temp.data();
     RID_DEVICE_INFO rdi;
-    std::size_t cbRdi = sizeof(rdi);
+    UINT cbRdi = sizeof(rdi);
     rdi.cbSize = cbRdi;
     if (GetRawInputDeviceInfoA(ridp.hDevice, RIDI_DEVICEINFO, &rdi, &cbRdi) < 0)
       throw std::runtime_error("Failed to get device info");

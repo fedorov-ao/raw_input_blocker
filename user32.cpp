@@ -4835,7 +4835,7 @@ DLLEXPORT BOOL WINAPI I_ScUnregisterDeviceNotification (HDEVNOTIFY handle)
   return IUser32::get_instance()->I_ScUnregisterDeviceNotification(handle);
 }
 
-DLLEXPORT BOOL WINAPI DdeSetUserHandle (HCONV hConv, DWORD id, DWORD hUser)
+DLLEXPORT BOOL WINAPI DdeSetUserHandle (HCONV hConv, DWORD id, DWORD_PTR hUser)
 {
   logging::log("wrapper", logging::LogLevel::debug, "DdeSetUserHandle()");
   return IUser32::get_instance()->DdeSetUserHandle(hConv, id, hUser);
@@ -9650,7 +9650,7 @@ BOOL APIUser32::I_ScUnregisterDeviceNotification (HDEVNOTIFY handle)
   return I_ScUnregisterDeviceNotification_(handle);
 }
 
-BOOL APIUser32::DdeSetUserHandle (HCONV hConv, DWORD id, DWORD hUser)
+BOOL APIUser32::DdeSetUserHandle (HCONV hConv, DWORD id, DWORD_PTR hUser)
 {
   logging::log("wrapper", logging::LogLevel::debug, "DdeSetUserHandle()");
   return DdeSetUserHandle_(hConv, id, hUser);
